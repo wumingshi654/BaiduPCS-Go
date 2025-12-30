@@ -7,10 +7,12 @@ import (
     "fmt"
     "io/ioutil"
     "os"
-	"path"
+    "os/signal"
+    "path"
     "path/filepath"
     "strings"
     "sync"
+    "syscall"
     "time"
 
     "github.com/qjfoidnh/BaiduPCS-Go/baidupcs"
@@ -31,7 +33,7 @@ type WatchEntry struct {
 
     // runtime
     stopCh  chan struct{}                `json:"-"`
-    Running bool                         `json:"-"`
+    Running bool                         `json:"running"`
     patterns []ignorePattern            `json:"-"`
 }
 
@@ -322,9 +324,24 @@ func ListSyncWatches() ([]*WatchEntry, error) {
 
 func StartSync(local string) error {
     if local == "" {
-        return mgr.StartAll()
+        if err := mgr.StartAll(); err != nil {
+            return err
+        }
+    } else {
+        if err := mgr.StartWatch(local); err != nil {
+            return err
+        }
     }
-    return mgr.StartWatch(local)
+
+    // Block and wait for interrupt/terminate signal, then stop watches
+    sigs := make(chan os.Signal, 1)
+    signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+    <-sigs
+
+    if local == "" {
+        return mgr.StopAll()
+    }
+    return mgr.StopWatch(local)
 }
 
 func StopSync(local string) error {
