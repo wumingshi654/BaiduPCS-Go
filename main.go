@@ -1245,50 +1245,121 @@ func main() {
 			},
 		},
 		{
-			Name:      "sync",
-			Usage:     "同步本地文件夹到网盘",
-			Category:  "百度网盘",
-			Before:    reloadFn,
-			Action: func(c *cli.Context) error {
-				if c.NArg() < 2 {
-					cli.ShowCommandHelp(c, c.Command.Name)
-					return nil
-				}
-
-				local := c.Args().Get(0)
-				remote := c.Args().Get(1)
-				interval := c.Int("interval")
-				stateFile := c.String("state")
-				encryptKey := c.String("key")
-				encryptMethod := c.String("method")
-
-				if interval <= 0 {
-					interval = 60
-				}
-
-				pcscommand.RunSync(local, remote, interval, stateFile, encryptKey, encryptMethod)
-				return nil
-			},
-			Flags: []cli.Flag{
-				cli.IntFlag{
-					Name:  "interval",
-					Usage: "检测间隔(秒)",
-					Value: 60,
+			Name:     "sync",
+			Usage:    "管理同步任务（add/list/start/stop/delete）",
+			Category: "百度网盘",
+			Before:   reloadFn,
+			Subcommands: []cli.Command{
+				{
+					Name:      "add",
+					Usage:     "添加监控任务: sync add <local> <remote>",
+					Action: func(c *cli.Context) error {
+						if c.NArg() < 2 {
+							cli.ShowCommandHelp(c, c.Command.Name)
+							return nil
+						}
+						local := c.Args().Get(0)
+						remote := c.Args().Get(1)
+						interval := c.Int("interval")
+						key := c.String("key")
+						method := c.String("method")
+						if interval <= 0 {
+							interval = 60
+						}
+						if err := pcscommand.AddSyncWatch(local, remote, interval, key, method); err != nil {
+							fmt.Printf("添加失败: %s\n", err)
+							return nil
+						}
+						fmt.Printf("添加成功: %s -> %s (interval=%d)\n", local, remote, interval)
+						return nil
+					},
+					Flags: []cli.Flag{
+						cli.IntFlag{Name: "interval", Usage: "检测间隔(秒)", Value: 60},
+						cli.StringFlag{Name: "key", Usage: "加密密钥(可选)", Value: ""},
+						cli.StringFlag{Name: "method", Usage: "加密方法", Value: "aes-128-ctr"},
+					},
 				},
-				cli.StringFlag{
-					Name:  "state",
-					Usage: "状态文件路径(默认为 <local>/.pcs_sync_state.json)",
-					Value: "",
+				{
+					Name:  "delete",
+					Usage: "删除监控任务: sync delete <local>",
+					Action: func(c *cli.Context) error {
+						if c.NArg() < 1 {
+							cli.ShowCommandHelp(c, c.Command.Name)
+							return nil
+						}
+						local := c.Args().Get(0)
+						if err := pcscommand.DeleteSyncWatch(local); err != nil {
+							fmt.Printf("删除失败: %s\n", err)
+							return nil
+						}
+						fmt.Printf("删除成功: %s\n", local)
+						return nil
+					},
 				},
-				cli.StringFlag{
-					Name:  "key",
-					Usage: "上传前加密文件的密钥(可选)",
-					Value: "",
+				{
+					Name:  "list",
+					Usage: "列出所有监控任务",
+					Action: func(c *cli.Context) error {
+						ws, err := pcscommand.ListSyncWatches()
+						if err != nil {
+							fmt.Printf("读取失败: %s\n", err)
+							return nil
+						}
+						if len(ws) == 0 {
+							fmt.Println("无监控任务")
+							return nil
+						}
+						for _, w := range ws {
+							running := "stopped"
+							if w.running {
+								running = "running"
+							}
+							fmt.Printf("%s -> %s, interval=%d, %s, key=%v\n", w.Local, w.Remote, w.Interval, running, w.Key != "")
+						}
+						return nil
+					},
 				},
-				cli.StringFlag{
-					Name:  "method",
-					Usage: "加密方法(默认: aes-128-ctr)",
-					Value: "aes-128-ctr",
+				{
+					Name:  "start",
+					Usage: "启动监控, 可选 local 参数; 无参数则启动全部: sync start [local]",
+					Action: func(c *cli.Context) error {
+						if c.NArg() == 0 {
+							if err := pcscommand.StartSync(""); err != nil {
+								fmt.Printf("启动失败: %s\n", err)
+							} else {
+								fmt.Println("已启动所有监控任务")
+							}
+							return nil
+						}
+						local := c.Args().Get(0)
+						if err := pcscommand.StartSync(local); err != nil {
+							fmt.Printf("启动失败: %s\n", err)
+						} else {
+							fmt.Printf("已启动: %s\n", local)
+						}
+						return nil
+					},
+				},
+				{
+					Name:  "stop",
+					Usage: "停止监控, 可选 local 参数; 无参数则停止全部: sync stop [local]",
+					Action: func(c *cli.Context) error {
+						if c.NArg() == 0 {
+							if err := pcscommand.StopSync(""); err != nil {
+								fmt.Printf("停止失败: %s\n", err)
+							} else {
+								fmt.Println("已停止所有监控任务")
+							}
+							return nil
+						}
+						local := c.Args().Get(0)
+						if err := pcscommand.StopSync(local); err != nil {
+							fmt.Printf("停止失败: %s\n", err)
+						} else {
+							fmt.Printf("已停止: %s\n", local)
+						}
+						return nil
+					},
 				},
 			},
 		},
