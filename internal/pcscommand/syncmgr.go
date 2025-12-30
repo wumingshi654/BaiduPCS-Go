@@ -26,11 +26,13 @@ type WatchEntry struct {
     Interval int                         `json:"interval"`
     Key     string                       `json:"key,omitempty"`
     Method  string                       `json:"method,omitempty"`
+    IgnoreFile string                     `json:"ignore_file,omitempty"`
     Files   map[string]syncFileState     `json:"files"`
 
     // runtime
     stopCh  chan struct{}                `json:"-"`
     Running bool                         `json:"-"`
+    patterns []ignorePattern            `json:"-"`
 }
 
 type SyncConfigFile struct {
@@ -92,6 +94,10 @@ func (s *syncManager) save() error {
 }
 
 func (s *syncManager) AddWatch(local, remote string, interval int, key, method string) error {
+    return s.AddWatchWithIgnore(local, remote, interval, key, method, "")
+}
+
+func (s *syncManager) AddWatchWithIgnore(local, remote string, interval int, key, method, ignoreFile string) error {
     mgrMu.Lock()
     defer mgrMu.Unlock()
     if err := s.load(); err != nil {
@@ -108,6 +114,7 @@ func (s *syncManager) AddWatch(local, remote string, interval int, key, method s
         Interval: interval,
         Key: key,
         Method: method,
+        IgnoreFile: ignoreFile,
         Files: make(map[string]syncFileState),
     }
     s.cfg.Watches[id] = we
@@ -250,6 +257,10 @@ func (s *syncManager) scanAndUpload(w *WatchEntry) {
         if ok && prev.ModTime == mod && prev.Size == size {
             continue
         }
+        // check ignore rules
+        if shouldIgnore(w, rel, info.IsDir()) {
+            continue
+        }
         // prepare upload
         uploadPath := f
         if w.Key != "" {
@@ -293,7 +304,12 @@ func (s *syncManager) watchID(local string) string {
 
 // helper wrappers used by main
 func AddSyncWatch(local, remote string, interval int, key, method string) error {
-    return mgr.AddWatch(local, remote, interval, key, method)
+    return mgr.AddWatchWithIgnore(local, remote, interval, key, method, "")
+}
+
+// AddSyncWatchWithIgnore allows specifying an ignore file path (relative to local or absolute)
+func AddSyncWatchWithIgnore(local, remote string, interval int, key, method, ignoreFile string) error {
+    return mgr.AddWatchWithIgnore(local, remote, interval, key, method, ignoreFile)
 }
 
 func DeleteSyncWatch(local string) error {

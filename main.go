@@ -1263,12 +1263,20 @@ func main() {
 						interval := c.Int("interval")
 						key := c.String("key")
 						method := c.String("method")
+						ignoreFile := c.String("ignore-file")
 						if interval <= 0 {
 							interval = 60
 						}
-						if err := pcscommand.AddSyncWatch(local, remote, interval, key, method); err != nil {
-							fmt.Printf("添加失败: %s\n", err)
-							return nil
+						if ignoreFile != "" {
+							if err := pcscommand.AddSyncWatchWithIgnore(local, remote, interval, key, method, ignoreFile); err != nil {
+								fmt.Printf("添加失败: %s\n", err)
+								return nil
+							}
+						} else {
+							if err := pcscommand.AddSyncWatch(local, remote, interval, key, method); err != nil {
+								fmt.Printf("添加失败: %s\n", err)
+								return nil
+							}
 						}
 						fmt.Printf("添加成功: %s -> %s (interval=%d)\n", local, remote, interval)
 						return nil
@@ -1277,6 +1285,7 @@ func main() {
 						cli.IntFlag{Name: "interval", Usage: "检测间隔(秒)", Value: 60},
 						cli.StringFlag{Name: "key", Usage: "加密密钥(可选)", Value: ""},
 						cli.StringFlag{Name: "method", Usage: "加密方法", Value: "aes-128-ctr"},
+						cli.StringFlag{Name: "ignore-file", Usage: "忽略文件路径(相对于 local，默认 .pcsignore)", Value: ""},
 					},
 				},
 				{
