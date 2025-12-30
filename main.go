@@ -1311,7 +1311,7 @@ func main() {
 						}
 						for _, w := range ws {
 							running := "stopped"
-							if w.running {
+							if w.Running {
 								running = "running"
 							}
 							fmt.Printf("%s -> %s, interval=%d, %s, key=%v\n", w.Local, w.Remote, w.Interval, running, w.Key != "")

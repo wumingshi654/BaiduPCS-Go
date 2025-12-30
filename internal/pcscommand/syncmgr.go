@@ -30,7 +30,7 @@ type WatchEntry struct {
 
     // runtime
     stopCh  chan struct{}                `json:"-"`
-    running bool                         `json:"-"`
+    Running bool                         `json:"-"`
 }
 
 type SyncConfigFile struct {
@@ -125,7 +125,7 @@ func (s *syncManager) DeleteWatch(local string) error {
         return fmt.Errorf("watch not found: %s", local)
     }
     // stop if running
-    if s.cfg.Watches[id].running && s.cfg.Watches[id].stopCh != nil {
+    if s.cfg.Watches[id].Running && s.cfg.Watches[id].stopCh != nil {
         close(s.cfg.Watches[id].stopCh)
     }
     delete(s.cfg.Watches, id)
@@ -154,11 +154,11 @@ func (s *syncManager) StartWatch(local string) error {
     if !ok {
         return fmt.Errorf("watch not found: %s", local)
     }
-    if w.running {
+    if w.Running {
         return fmt.Errorf("watch already running: %s", local)
     }
     w.stopCh = make(chan struct{})
-    w.running = true
+    w.Running = true
     go s.runWatch(w)
     return s.save()
 }
@@ -174,13 +174,13 @@ func (s *syncManager) StopWatch(local string) error {
     if !ok {
         return fmt.Errorf("watch not found: %s", local)
     }
-    if !w.running {
+    if !w.Running {
         return fmt.Errorf("watch not running: %s", local)
     }
     if w.stopCh != nil {
         close(w.stopCh)
     }
-    w.running = false
+    w.Running = false
     w.stopCh = nil
     return s.save()
 }
@@ -190,9 +190,9 @@ func (s *syncManager) StartAll() error {
         return err
     }
     for _, w := range s.cfg.Watches {
-        if !w.running {
+        if !w.Running {
             w.stopCh = make(chan struct{})
-            w.running = true
+            w.Running = true
             go s.runWatch(w)
         }
     }
@@ -204,9 +204,9 @@ func (s *syncManager) StopAll() error {
         return err
     }
     for _, w := range s.cfg.Watches {
-        if w.running && w.stopCh != nil {
+        if w.Running && w.stopCh != nil {
             close(w.stopCh)
-            w.running = false
+            w.Running = false
             w.stopCh = nil
         }
     }
