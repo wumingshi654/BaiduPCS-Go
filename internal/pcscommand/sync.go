@@ -90,7 +90,7 @@ func RunSync(localDir, remoteDir string, intervalSeconds int, stateFile, encrypt
 		cfg.EncryptMethod = encryptMethod
 	}
 
-	fmt.Printf("开始同步: %s -> %s, 间隔 %d 秒, 状态文件: %s\n", localDir, remoteDir, intervalSeconds, stateFile)
+	fmt.Printf("开始执行任务 本地目录 %s 同步 -> %s, 间隔 %d 秒, 状态文件: %s\n", localDir, remoteDir, intervalSeconds, stateFile)
 	if encryptKey != "" {
 		fmt.Printf("启用加密: 方法=%s\n", encryptMethod)
 	}
@@ -124,13 +124,15 @@ func RunSync(localDir, remoteDir string, intervalSeconds int, stateFile, encrypt
 
 			// 检查文件是否有变化（仅比较 mtime 和 size，不需要计算 MD5）
 			prev, ok := cfg.Files[rel]
-			if ok && prev.ModTime == modTime && prev.Size == size {
-				// 文件未变化，跳过
-				continue
+			if ok {
+				if prev.ModTime == modTime && prev.Size == size {
+					// 文件未变化，跳过
+					continue
+				}
+				fmt.Printf("文件 %s 的修改时间/大小与配置中不一致: prev(mtime=%d,size=%d) new(mtime=%d,size=%d), 执行上传\n", rel, prev.ModTime, prev.Size, modTime, size)
+			} else {
+				fmt.Printf("文件 %s 未在配置中, 执行首次上传\n", rel)
 			}
-
-			// 文件有变化或首次上传
-			fmt.Printf("检测到变化, 准备上传: %s\n", rel)
 
 			// 确定上传的文件
 			uploadPath := sysPath
@@ -180,6 +182,9 @@ func RunSync(localDir, remoteDir string, intervalSeconds int, stateFile, encrypt
 				fmt.Printf("保存状态失败: %s\n", err)
 			}
 		}
+		// 本次扫描完成
+		next := time.Now().Add(time.Duration(intervalSeconds) * time.Second).Format(time.RFC3339)
+		fmt.Printf("%s 同步完成, 下次同步时间为 %s\n", localDir, next)
 	}
 
 	// 首次执行

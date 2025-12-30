@@ -33,7 +33,8 @@ type WatchEntry struct {
 
     // runtime
     stopCh  chan struct{}                `json:"-"`
-    Running bool                         `json:"running"`
+    // Running is runtime-only and should not be persisted to disk
+    Running bool                         `json:"-"`
     patterns []ignorePattern            `json:"-"`
 }
 
@@ -169,6 +170,7 @@ func (s *syncManager) StartWatch(local string) error {
     w.stopCh = make(chan struct{})
     w.Running = true
     go s.runWatch(w)
+    fmt.Printf("开始执行任务 本地目录 %s 同步 (interval=%d)\n", w.Local, w.Interval)
     return s.save()
 }
 
@@ -203,6 +205,7 @@ func (s *syncManager) StartAll() error {
             w.stopCh = make(chan struct{})
             w.Running = true
             go s.runWatch(w)
+            fmt.Printf("开始执行任务 本地目录 %s 同步 (interval=%d)\n", w.Local, w.Interval)
         }
     }
     return s.save()
@@ -256,9 +259,15 @@ func (s *syncManager) scanAndUpload(w *WatchEntry) {
         mod := info.ModTime().Unix()
         size := info.Size()
         prev, ok := w.Files[rel]
-        if ok && prev.ModTime == mod && prev.Size == size {
-            continue
+        if ok {
+            if prev.ModTime == mod && prev.Size == size {
+                continue
+            }
+            fmt.Printf("文件 %s 的修改时间/大小与配置中不一致: prev(mtime=%d,size=%d) new(mtime=%d,size=%d), 执行上传\n", rel, prev.ModTime, prev.Size, mod, size)
+        } else {
+            fmt.Printf("文件 %s 未在配置中, 执行首次上传\n", rel)
         }
+
         // check ignore rules
         if shouldIgnore(w, rel, info.IsDir()) {
             continue
@@ -296,6 +305,9 @@ func (s *syncManager) scanAndUpload(w *WatchEntry) {
             fmt.Printf("save sync config error: %s\n", err)
         }
     }
+    // 完成本次扫描/上传
+    next := time.Now().Add(time.Duration(w.Interval) * time.Second).Format(time.RFC3339)
+    fmt.Printf("%s 同步完成, 下次同步时间为 %s\n", w.Local, next)
 }
 
 func (s *syncManager) watchID(local string) string {
