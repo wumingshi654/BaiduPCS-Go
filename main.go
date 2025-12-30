@@ -1245,6 +1245,54 @@ func main() {
 			},
 		},
 		{
+			Name:      "sync",
+			Usage:     "同步本地文件夹到网盘",
+			Category:  "百度网盘",
+			Before:    reloadFn,
+			Action: func(c *cli.Context) error {
+				if c.NArg() < 2 {
+					cli.ShowCommandHelp(c, c.Command.Name)
+					return nil
+				}
+
+				local := c.Args().Get(0)
+				remote := c.Args().Get(1)
+				interval := c.Int("interval")
+				stateFile := c.String("state")
+				encryptKey := c.String("key")
+				encryptMethod := c.String("method")
+
+				if interval <= 0 {
+					interval = 60
+				}
+
+				pcscommand.RunSync(local, remote, interval, stateFile, encryptKey, encryptMethod)
+				return nil
+			},
+			Flags: []cli.Flag{
+				cli.IntFlag{
+					Name:  "interval",
+					Usage: "检测间隔(秒)",
+					Value: 60,
+				},
+				cli.StringFlag{
+					Name:  "state",
+					Usage: "状态文件路径(默认为 <local>/.pcs_sync_state.json)",
+					Value: "",
+				},
+				cli.StringFlag{
+					Name:  "key",
+					Usage: "上传前加密文件的密钥(可选)",
+					Value: "",
+				},
+				cli.StringFlag{
+					Name:  "method",
+					Usage: "加密方法(默认: aes-128-ctr)",
+					Value: "aes-128-ctr",
+				},
+			},
+		},
+		{
 			Name:      "locate",
 			Aliases:   []string{"lt"},
 			Usage:     "获取下载直链",
