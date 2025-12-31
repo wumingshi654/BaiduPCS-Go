@@ -1,8 +1,11 @@
 package pcscommand
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"os/signal"
@@ -16,10 +19,11 @@ import (
 	"github.com/qjfoidnh/BaiduPCS-Go/pcsutil"
 )
 
-// syncFileState 记录文件的修改时间和大小（无需MD5）
+// syncFileState 记录文件的修改时间、大小和MD5
 type syncFileState struct {
-	ModTime int64 `json:"mod_time"`
-	Size    int64 `json:"size"`
+	ModTime int64  `json:"mod_time"`
+	Size    int64  `json:"size"`
+	MD5     string `json:"md5,omitempty"`
 }
 
 // syncConfig 同步配置信息（保存加密设置等）
@@ -122,14 +126,21 @@ func RunSync(localDir, remoteDir string, intervalSeconds int, stateFile, encrypt
 			modTime := info.ModTime().Unix()
 			size := info.Size()
 
-			// 检查文件是否有变化（仅比较 mtime 和 size，不需要计算 MD5）
+			// 计算文件的MD5
+			currentMD5, err := md5sum(sysPath)
+			if err != nil {
+				fmt.Printf("计算文件 %s 的MD5失败: %s, 跳过\n", rel, err)
+				continue
+			}
+
+			// 检查文件是否有变化
 			prev, ok := cfg.Files[rel]
 			if ok {
-				if prev.ModTime == modTime && prev.Size == size {
-					// 文件未变化，跳过
+				if prev.MD5 == currentMD5 {
+					// 文件内容未变化，跳过
 					continue
 				}
-				fmt.Printf("文件 %s 的修改时间/大小与配置中不一致: prev(mtime=%d,size=%d) new(mtime=%d,size=%d), 执行上传\n", rel, prev.ModTime, prev.Size, modTime, size)
+				fmt.Printf("文件 %s 的MD5与配置中不一致: prev_md5=%s new_md5=%s, 执行上传\n", rel, prev.MD5, currentMD5)
 			} else {
 				fmt.Printf("文件 %s 未在配置中, 执行首次上传\n", rel)
 			}
@@ -171,10 +182,11 @@ func RunSync(localDir, remoteDir string, intervalSeconds int, stateFile, encrypt
 			// 调用上传（仅上传单个文件）
 			RunUpload([]string{uploadPath}, savePath, &UploadOptions{})
 
-			// 更新状态：记录原始文件的 mtime 和 size
+			// 更新状态：记录原始文件的 mtime、size 和 MD5
 			cfg.Files[rel] = syncFileState{
 				ModTime: modTime,
 				Size:    size,
+				MD5:     currentMD5,
 			}
 
 			// 及时保存状态
@@ -226,4 +238,19 @@ func encryptFileForSync(inputPath, outputPath, key, method string) error {
 	}
 
 	return nil
+}
+
+// md5sum 计算文件的MD5哈希值
+func md5sum(filePath string) (string, error) {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	h := md5.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }

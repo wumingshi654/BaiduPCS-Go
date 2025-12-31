@@ -258,12 +258,20 @@ func (s *syncManager) scanAndUpload(w *WatchEntry) {
         rel = strings.TrimPrefix(rel, "/")
         mod := info.ModTime().Unix()
         size := info.Size()
+
+        // 计算文件的MD5
+        currentMD5, err := md5sum(f)
+        if err != nil {
+            fmt.Printf("计算文件 %s 的MD5失败: %s, 跳过\n", rel, err)
+            continue
+        }
+
         prev, ok := w.Files[rel]
         if ok {
-            if prev.ModTime == mod && prev.Size == size {
+            if prev.MD5 == currentMD5 {
                 continue
             }
-            fmt.Printf("文件 %s 的修改时间/大小与配置中不一致: prev(mtime=%d,size=%d) new(mtime=%d,size=%d), 执行上传\n", rel, prev.ModTime, prev.Size, mod, size)
+            fmt.Printf("文件 %s 的MD5与配置中不一致: prev_md5=%s new_md5=%s, 执行上传\n", rel, prev.MD5, currentMD5)
         } else {
             fmt.Printf("文件 %s 未在配置中, 执行首次上传\n", rel)
         }
@@ -299,7 +307,7 @@ func (s *syncManager) scanAndUpload(w *WatchEntry) {
         if w.Files == nil {
             w.Files = make(map[string]syncFileState)
         }
-        w.Files[rel] = syncFileState{ModTime: mod, Size: size}
+        w.Files[rel] = syncFileState{ModTime: mod, Size: size, MD5: currentMD5}
         // persist
         if err := s.save(); err != nil {
             fmt.Printf("save sync config error: %s\n", err)
