@@ -15,6 +15,7 @@ import (
     "syscall"
     "time"
 
+    "github.com/google/uuid"
     "github.com/qjfoidnh/BaiduPCS-Go/baidupcs"
     "github.com/qjfoidnh/BaiduPCS-Go/internal/pcsconfig"
     "github.com/qjfoidnh/BaiduPCS-Go/pcsutil"
@@ -29,7 +30,9 @@ type WatchEntry struct {
     Key     string                       `json:"key,omitempty"`
     Method  string                       `json:"method,omitempty"`
     IgnoreFile string                     `json:"ignore_file,omitempty"`
+    RandomFilename bool                  `json:"random_filename,omitempty"`
     Files   map[string]syncFileState     `json:"files"`
+    FileNameMap map[string]string        `json:"file_name_map,omitempty"`
 
     // runtime
     stopCh  chan struct{}                `json:"-"`
@@ -97,10 +100,14 @@ func (s *syncManager) save() error {
 }
 
 func (s *syncManager) AddWatch(local, remote string, interval int, key, method string) error {
-    return s.AddWatchWithIgnore(local, remote, interval, key, method, "")
+    return s.AddWatchWithIgnoreAndRandom(local, remote, interval, key, method, "", false)
 }
 
 func (s *syncManager) AddWatchWithIgnore(local, remote string, interval int, key, method, ignoreFile string) error {
+    return s.AddWatchWithIgnoreAndRandom(local, remote, interval, key, method, ignoreFile, false)
+}
+
+func (s *syncManager) AddWatchWithIgnoreAndRandom(local, remote string, interval int, key, method, ignoreFile string, randomFilename bool) error {
     mgrMu.Lock()
     defer mgrMu.Unlock()
     if err := s.load(); err != nil {
@@ -118,7 +125,9 @@ func (s *syncManager) AddWatchWithIgnore(local, remote string, interval int, key
         Key: key,
         Method: method,
         IgnoreFile: ignoreFile,
+        RandomFilename: randomFilename,
         Files: make(map[string]syncFileState),
+        FileNameMap: make(map[string]string),
     }
     s.cfg.Watches[id] = we
     return s.save()
@@ -282,6 +291,7 @@ func (s *syncManager) scanAndUpload(w *WatchEntry) {
         }
         // prepare upload
         uploadPath := f
+        uploadFileName := filepath.Base(rel)
         if w.Key != "" {
             tmp := f + ".encrypted"
             if err := encryptFileForSync(f, tmp, w.Key, w.Method); err != nil {
@@ -289,6 +299,16 @@ func (s *syncManager) scanAndUpload(w *WatchEntry) {
                 continue
             }
             uploadPath = tmp
+            // 如果启用了随机文件名，生成UUID作为上传文件名
+            if w.RandomFilename {
+                newFileName := uuid.New().String()
+                uploadFileName = newFileName
+                if w.FileNameMap == nil {
+                    w.FileNameMap = make(map[string]string)
+                }
+                w.FileNameMap[newFileName] = rel
+                fmt.Printf("[sync] 生成随机文件名映射: %s -> %s\n", newFileName, rel)
+            }
         }
         relDir := filepath.Dir(rel)
         var savePath string
@@ -297,6 +317,17 @@ func (s *syncManager) scanAndUpload(w *WatchEntry) {
         } else {
             savePath = path.Clean(w.Remote + baidupcs.PathSeparator + filepath.ToSlash(relDir))
         }
+        
+        // 如果启用了随机文件名，创建临时文件并重命名
+        if w.RandomFilename && w.Key != "" && uploadFileName != filepath.Base(rel) {
+            tempUploadPath := filepath.Join(filepath.Dir(uploadPath), uploadFileName)
+            if err := os.Rename(uploadPath, tempUploadPath); err != nil {
+                fmt.Printf("rename error %s -> %s: %s\n", uploadPath, tempUploadPath, err)
+                continue
+            }
+            uploadPath = tempUploadPath
+        }
+        
         fmt.Printf("[sync] %s -> %s\n", uploadPath, savePath)
         RunUpload([]string{uploadPath}, savePath, &UploadOptions{})
         // remove temporary encrypted file if any
@@ -332,6 +363,11 @@ func AddSyncWatch(local, remote string, interval int, key, method string) error 
 // AddSyncWatchWithIgnore allows specifying an ignore file path (relative to local or absolute)
 func AddSyncWatchWithIgnore(local, remote string, interval int, key, method, ignoreFile string) error {
     return mgr.AddWatchWithIgnore(local, remote, interval, key, method, ignoreFile)
+}
+
+// AddSyncWatchWithIgnoreAndRandom allows specifying an ignore file path and random filename option
+func AddSyncWatchWithIgnoreAndRandom(local, remote string, interval int, key, method, ignoreFile string, randomFilename bool) error {
+    return mgr.AddWatchWithIgnoreAndRandom(local, remote, interval, key, method, ignoreFile, randomFilename)
 }
 
 func DeleteSyncWatch(local string) error {
