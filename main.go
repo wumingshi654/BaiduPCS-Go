@@ -1264,19 +1264,21 @@ func main() {
 						key := c.String("key")
 						method := c.String("method")
 						ignoreFile := c.String("ignore-file")
+						startSh := c.String("start-sh")
+						endSh := c.String("end-sh")
 						randomFilename := c.Bool("random-filename")
 						mergeMode := c.Bool("merge")
 						if interval <= 0 {
 							interval = 60
 						}
 						if ignoreFile != "" {
-							if err := pcscommand.AddSyncWatchWithIgnoreAndRandomAndMerge(local, remote, interval, key, method, ignoreFile, randomFilename, mergeMode); err != nil {
+							if err := pcscommand.AddSyncWatchWithIgnoreAndRandomAndMerge(local, remote, interval, key, method, ignoreFile, randomFilename, mergeMode, startSh, endSh); err != nil {
 								fmt.Printf("添加失败: %s\n", err)
 								return nil
 							}
 						} else {
 							if randomFilename || mergeMode {
-								if err := pcscommand.AddSyncWatchWithIgnoreAndRandomAndMerge(local, remote, interval, key, method, "", randomFilename, mergeMode); err != nil {
+								if err := pcscommand.AddSyncWatchWithIgnoreAndRandomAndMerge(local, remote, interval, key, method, "", randomFilename, mergeMode, startSh, endSh); err != nil {
 									fmt.Printf("添加失败: %s\n", err)
 									return nil
 								}
@@ -1296,6 +1298,8 @@ func main() {
 						cli.StringFlag{Name: "method", Usage: "加密方法", Value: "aes-128-ctr"},
 						cli.StringFlag{Name: "ignore-file", Usage: "忽略文件路径(相对于 local，默认 .pcsignore)", Value: ""},
 						cli.BoolFlag{Name: "random-filename", Usage: "使用随机UUID作为加密文件名(需要同时指定加密密钥)"},
+						cli.StringFlag{Name: "start-sh", Usage: "上传前执行的脚本路径(可选)", Value: ""},
+						cli.StringFlag{Name: "end-sh", Usage: "上传后执行的脚本路径(可选)", Value: ""},
 						cli.BoolFlag{Name: "merge", Usage: "合并上传: 每隔 interval 打包目录并上传 (不监控变化)"},
 					},
 				},

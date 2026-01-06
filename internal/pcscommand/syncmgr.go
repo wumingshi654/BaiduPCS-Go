@@ -16,6 +16,7 @@ import (
     "sync"
     "syscall"
     "time"
+    "os/exec"
 
     "github.com/google/uuid"
     "github.com/qjfoidnh/BaiduPCS-Go/baidupcs"
@@ -33,6 +34,10 @@ type WatchEntry struct {
     Method  string                       `json:"method,omitempty"`
     IgnoreFile string                     `json:"ignore_file,omitempty"`
     RandomFilename bool                  `json:"random_filename,omitempty"`
+    // StartSh 在每次上传前执行的脚本路径
+    StartSh string                      `json:"start_sh,omitempty"`
+    // EndSh 在每次上传后执行的脚本路径
+    EndSh string                        `json:"end_sh,omitempty"`
     // Merge 模式：合并上传（每隔 interval 打包目录并上传），而不是监控变化
     Merge bool                           `json:"merge,omitempty"`
     // MergeFilename 当启用随机文件名时, 合并上传的固定随机文件名
@@ -106,14 +111,14 @@ func (s *syncManager) save() error {
 }
 
 func (s *syncManager) AddWatch(local, remote string, interval int, key, method string) error {
-    return s.AddWatchWithIgnoreAndRandom(local, remote, interval, key, method, "", false, false)
+    return s.AddWatchWithIgnoreAndRandom(local, remote, interval, key, method, "", false, false, "", "")
 }
 
 func (s *syncManager) AddWatchWithIgnore(local, remote string, interval int, key, method, ignoreFile string) error {
-    return s.AddWatchWithIgnoreAndRandom(local, remote, interval, key, method, ignoreFile, false, false)
+    return s.AddWatchWithIgnoreAndRandom(local, remote, interval, key, method, ignoreFile, false, false, "", "")
 }
 
-func (s *syncManager) AddWatchWithIgnoreAndRandom(local, remote string, interval int, key, method, ignoreFile string, randomFilename bool, merge bool) error {
+func (s *syncManager) AddWatchWithIgnoreAndRandom(local, remote string, interval int, key, method, ignoreFile string, randomFilename bool, merge bool, startSh, endSh string) error {
     mgrMu.Lock()
     defer mgrMu.Unlock()
     if err := s.load(); err != nil {
@@ -133,6 +138,8 @@ func (s *syncManager) AddWatchWithIgnoreAndRandom(local, remote string, interval
         IgnoreFile: ignoreFile,
         RandomFilename: randomFilename,
         Merge: merge,
+        StartSh: startSh,
+        EndSh: endSh,
         Files: make(map[string]syncFileState),
         FileNameMap: make(map[string]string),
     }
@@ -368,8 +375,28 @@ func (s *syncManager) mergeAndUpload(w *WatchEntry) {
 
     // 计算保存路径（上传到远程目录）
     savePath := w.Remote
+    // 执行上传前脚本
+    okStart, runErr := runShellScript(w.StartSh)
+    if runErr != nil {
+        fmt.Printf("执行 start-sh %s 失败: %s, 跳过上传\n", w.StartSh, runErr)
+        return
+    }
+    if !okStart {
+        fmt.Printf("start-sh %s 返回非零退出码, 跳过本次上传\n", w.StartSh)
+        return
+    }
+
     fmt.Printf("[sync-merge] %s -> %s\n", uploadPath, savePath)
     RunUpload([]string{uploadPath}, savePath, &UploadOptions{})
+
+    // 执行上传后脚本
+    if w.EndSh != "" {
+        if ok2, err2 := runShellScript(w.EndSh); err2 != nil {
+            fmt.Printf("执行 end-sh %s 失败: %s\n", w.EndSh, err2)
+        } else if !ok2 {
+            fmt.Printf("end-sh %s 返回非零退出码\n", w.EndSh)
+        }
+    }
 
     // 删除临时加密文件
     if uploadPath != zipPath {
@@ -463,8 +490,34 @@ func (s *syncManager) scanAndUpload(w *WatchEntry) {
             uploadPath = tempUploadPath
         }
         
+        // 执行上传前脚本
+        okStart, runErr := runShellScript(w.StartSh)
+        if runErr != nil {
+            fmt.Printf("执行 start-sh %s 失败: %s, 跳过上传 %s\n", w.StartSh, runErr, rel)
+            if uploadPath != f {
+                os.Remove(uploadPath)
+            }
+            continue
+        }
+        if !okStart {
+            fmt.Printf("start-sh %s 返回非零退出码, 跳过上传 %s\n", w.StartSh, rel)
+            if uploadPath != f {
+                os.Remove(uploadPath)
+            }
+            continue
+        }
+
         fmt.Printf("[sync] %s -> %s\n", uploadPath, savePath)
         RunUpload([]string{uploadPath}, savePath, &UploadOptions{})
+
+        // 执行上传后脚本
+        if w.EndSh != "" {
+            if ok2, err2 := runShellScript(w.EndSh); err2 != nil {
+                fmt.Printf("执行 end-sh %s 失败: %s\n", w.EndSh, err2)
+            } else if !ok2 {
+                fmt.Printf("end-sh %s 返回非零退出码\n", w.EndSh)
+            }
+        }
         // remove temporary encrypted file if any
         if uploadPath != f {
             os.Remove(uploadPath)
@@ -490,24 +543,48 @@ func (s *syncManager) watchID(local string) string {
     return hex.EncodeToString(h[:])
 }
 
+// runShellScript 执行指定的 sh 文件（通过 /bin/sh 脚本路径作为参数）。
+// 返回 (true, nil) 表示退出码为 0，可以继续；返回 (false, nil) 表示脚本退出码非 0，
+// 返回 (false, err) 表示执行过程中发生错误。
+func runShellScript(script string) (bool, error) {
+    if script == "" {
+        return true, nil
+    }
+    // ensure file exists
+    if _, err := os.Stat(script); err != nil {
+        return false, err
+    }
+    cmd := exec.Command("/bin/sh", script)
+    cmd.Stdout = os.Stdout
+    cmd.Stderr = os.Stderr
+    if err := cmd.Run(); err != nil {
+        if _, ok := err.(*exec.ExitError); ok {
+            // non-zero exit code
+            return false, nil
+        }
+        return false, err
+    }
+    return true, nil
+}
+
 // helper wrappers used by main
 func AddSyncWatch(local, remote string, interval int, key, method string) error {
-    return mgr.AddWatchWithIgnoreAndRandom(local, remote, interval, key, method, "", false, false)
+    return mgr.AddWatchWithIgnoreAndRandom(local, remote, interval, key, method, "", false, false, "", "")
 }
 
 // AddSyncWatchWithIgnore allows specifying an ignore file path (relative to local or absolute)
 func AddSyncWatchWithIgnore(local, remote string, interval int, key, method, ignoreFile string) error {
-    return mgr.AddWatchWithIgnoreAndRandom(local, remote, interval, key, method, ignoreFile, false, false)
+    return mgr.AddWatchWithIgnoreAndRandom(local, remote, interval, key, method, ignoreFile, false, false, "", "")
 }
 
 // AddSyncWatchWithIgnoreAndRandom allows specifying an ignore file path and random filename option
 func AddSyncWatchWithIgnoreAndRandom(local, remote string, interval int, key, method, ignoreFile string, randomFilename bool) error {
-    return mgr.AddWatchWithIgnoreAndRandom(local, remote, interval, key, method, ignoreFile, randomFilename, false)
+    return mgr.AddWatchWithIgnoreAndRandom(local, remote, interval, key, method, ignoreFile, randomFilename, false, "", "")
 }
 
 // AddSyncWatchWithIgnoreAndRandomAndMerge allows specifying ignore, random filename and merge mode
-func AddSyncWatchWithIgnoreAndRandomAndMerge(local, remote string, interval int, key, method, ignoreFile string, randomFilename bool, merge bool) error {
-    return mgr.AddWatchWithIgnoreAndRandom(local, remote, interval, key, method, ignoreFile, randomFilename, merge)
+func AddSyncWatchWithIgnoreAndRandomAndMerge(local, remote string, interval int, key, method, ignoreFile string, randomFilename bool, merge bool, startSh, endSh string) error {
+    return mgr.AddWatchWithIgnoreAndRandom(local, remote, interval, key, method, ignoreFile, randomFilename, merge, startSh, endSh)
 }
 
 func DeleteSyncWatch(local string) error {
