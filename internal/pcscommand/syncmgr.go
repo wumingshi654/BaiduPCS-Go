@@ -408,6 +408,15 @@ func (s *syncManager) mergeAndUpload(w *WatchEntry) {
 }
 
 func (s *syncManager) scanAndUpload(w *WatchEntry) {
+    okStart, runErr := runShellScript(w.StartSh)
+    if runErr != nil {
+        fmt.Printf("执行 start-sh %s 失败: %s, 跳过本次同步\n", w.StartSh, runErr)
+        return
+    }
+    if !okStart {
+        fmt.Printf("start-sh %s 返回非零退出码, 跳过本次同步\n", w.StartSh)
+        return
+    }
     walked, err := pcsutil.WalkDir(w.Local, "")
     if err != nil {
         fmt.Printf("walk %s error: %s\n", w.Local, err)
@@ -490,34 +499,9 @@ func (s *syncManager) scanAndUpload(w *WatchEntry) {
             uploadPath = tempUploadPath
         }
         
-        // 执行上传前脚本
-        okStart, runErr := runShellScript(w.StartSh)
-        if runErr != nil {
-            fmt.Printf("执行 start-sh %s 失败: %s, 跳过上传 %s\n", w.StartSh, runErr, rel)
-            if uploadPath != f {
-                os.Remove(uploadPath)
-            }
-            continue
-        }
-        if !okStart {
-            fmt.Printf("start-sh %s 返回非零退出码, 跳过上传 %s\n", w.StartSh, rel)
-            if uploadPath != f {
-                os.Remove(uploadPath)
-            }
-            continue
-        }
-
         fmt.Printf("[sync] %s -> %s\n", uploadPath, savePath)
         RunUpload([]string{uploadPath}, savePath, &UploadOptions{})
 
-        // 执行上传后脚本
-        if w.EndSh != "" {
-            if ok2, err2 := runShellScript(w.EndSh); err2 != nil {
-                fmt.Printf("执行 end-sh %s 失败: %s\n", w.EndSh, err2)
-            } else if !ok2 {
-                fmt.Printf("end-sh %s 返回非零退出码\n", w.EndSh)
-            }
-        }
         // remove temporary encrypted file if any
         if uploadPath != f {
             os.Remove(uploadPath)
@@ -530,6 +514,14 @@ func (s *syncManager) scanAndUpload(w *WatchEntry) {
         // persist
         if err := s.save(); err != nil {
             fmt.Printf("save sync config error: %s\n", err)
+        }
+    }
+    // 执行上传后脚本
+    if w.EndSh != "" {
+        if ok2, err2 := runShellScript(w.EndSh); err2 != nil {
+            fmt.Printf("执行 end-sh %s 失败: %s\n", w.EndSh, err2)
+        } else if !ok2 {
+            fmt.Printf("end-sh %s 返回非零退出码\n", w.EndSh)
         }
     }
     // 完成本次扫描/上传
