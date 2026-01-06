@@ -1271,23 +1271,9 @@ func main() {
 						if interval <= 0 {
 							interval = 60
 						}
-						if ignoreFile != "" {
-							if err := pcscommand.AddSyncWatchWithIgnoreAndRandomAndMerge(local, remote, interval, key, method, ignoreFile, randomFilename, mergeMode, startSh, endSh); err != nil {
-								fmt.Printf("添加失败: %s\n", err)
-								return nil
-							}
-						} else {
-							if randomFilename || mergeMode {
-								if err := pcscommand.AddSyncWatchWithIgnoreAndRandomAndMerge(local, remote, interval, key, method, "", randomFilename, mergeMode, startSh, endSh); err != nil {
-									fmt.Printf("添加失败: %s\n", err)
-									return nil
-								}
-							} else {
-								if err := pcscommand.AddSyncWatch(local, remote, interval, key, method); err != nil {
-									fmt.Printf("添加失败: %s\n", err)
-									return nil
-								}
-							}
+						if err := pcscommand.AddSyncWatchWithIgnoreAndRandomAndMerge(local, remote, interval, key, method, ignoreFile, randomFilename, mergeMode, startSh, endSh); err != nil {
+							fmt.Printf("添加失败: %s\n", err)
+							return nil
 						}
 						fmt.Printf("添加成功: %s -> %s (interval=%d)\n", local, remote, interval)
 						return nil
