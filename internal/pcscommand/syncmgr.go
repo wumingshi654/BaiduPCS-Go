@@ -25,6 +25,13 @@ import (
 )
 
 const syncConfigFileName = "sync_config.json"
+var SYNC_UPLOAD_OPTIONS = &UploadOptions{
+    // 设置为覆盖模式 (引用 baidupcs 包中的常量)
+    Policy: baidupcs.OverWritePolicy, 
+    
+    // 建议设置重试次数，否则默认为 0 (不重试)
+    MaxRetry: DefaultUploadMaxRetry, 
+}
 
 type WatchEntry struct {
     Local   string                       `json:"local"`
@@ -387,7 +394,7 @@ func (s *syncManager) mergeAndUpload(w *WatchEntry) {
     }
 
     fmt.Printf("[sync-merge] %s -> %s\n", uploadPath, savePath)
-    RunUpload([]string{uploadPath}, savePath, &UploadOptions{})
+    RunUpload([]string{uploadPath}, savePath, SYNC_UPLOAD_OPTIONS)
 
     // 执行上传后脚本
     if w.EndSh != "" {
@@ -500,7 +507,7 @@ func (s *syncManager) scanAndUpload(w *WatchEntry) {
         }
         
         fmt.Printf("[sync] %s -> %s\n", uploadPath, savePath)
-        RunUpload([]string{uploadPath}, savePath, &UploadOptions{})
+        RunUpload([]string{uploadPath}, savePath, SYNC_UPLOAD_OPTIONS)
 
         // remove temporary encrypted file if any
         if uploadPath != f {

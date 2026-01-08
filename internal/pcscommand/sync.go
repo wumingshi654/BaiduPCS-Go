@@ -180,7 +180,7 @@ func RunSync(localDir, remoteDir string, intervalSeconds int, stateFile, encrypt
 			fmt.Printf("上传到: %s\n", savePath)
 
 			// 调用上传（仅上传单个文件）
-			RunUpload([]string{uploadPath}, savePath, &UploadOptions{})
+			RunUpload([]string{uploadPath}, savePath, SYNC_UPLOAD_OPTIONS)
 
 			// 更新状态：记录原始文件的 mtime、size 和 MD5
 			cfg.Files[rel] = syncFileState{
